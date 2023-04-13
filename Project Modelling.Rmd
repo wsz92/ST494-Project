@@ -1,0 +1,585 @@
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(GGally)
+library(tidyverse)
+library(anytime)
+library(naniar)
+library(corrplot)
+```
+```{r}
+dataset <- read.csv("https://raw.githubusercontent.com/fivethirtyeight/data/master/police-killings/police_killings.csv")
+```
+```{r}
+AttrTypes <- split(names(dataset),sapply(dataset, function(x) paste(class(x), collapse=" ")))
+numericAttr <- unlist(lapply(dataset, is.numeric))  
+numberOfNumerics = sum(numericAttr, na.rm = TRUE) 
+# With the par() function, we can include the option mfrow=c(nrows, ncols)
+# to create a matrix of nrows x ncols plots that are filled in by row.
+# mfcol=c(nrows, ncols) fills in the matrix by columns.
+# Create HISTOGRAMS for each Numeric attribute
+par(mfrow=c(1,6))
+# par(mar = rep(2, 3)) # img size
+for(col in 1:ncol(dataset)) {
+  if(numericAttr[col]) {
+    hist(dataset[,col], main=names(dataset)[col], breaks=12, col="gray")
+  }
+}
+
+# Create DENSITY PLOT for each Numeric attribute
+
+
+```
+
+
+```{r}
+
+
+# ============= Dealing with Missing data ==========
+
+datasetRem = dataset # removed some attributes
+# when the data contains missing values, 
+# some R functions will return errors or NA even if just a single value is missing.
+
+sapply(datasetRem, function(x) sum(is.na(x)))
+rowSums(is.na(datasetRem)) # Number of missing per row
+colSums(is.na(datasetRem)) # Number of missing per column/variable
+
+# We can now save all attributes which have missing values
+missingAttr = colnames(datasetRem)[colSums(is.na(datasetRem)) > 0]
+```
+
+```{r}
+# ============= REMOVING UNNECESSARY ATTRIBUTES! ============= 
+
+# There are also some attributes which contains NAs. If ratio is over the 20% they will be removed
+sum(is.na(datasetRem))/prod(dim(datasetRem))
+# There are many attributes(columns) which do not effect the result of mining process such as;
+# ID, Street Adress, Name, latitude, longitude(Coordinates),  etc.
+# and "year" attribute is also unnecessary because this data is already for year 2015.
+# We can use following format to remove an attribute;
+# datasetRem$columnname <- NULL
+# Let's remove these attributes;
+datasetRem$name <- NULL
+datasetRem$streetaddress <- NULL
+datasetRem$month <- NULL # Not Sure
+datasetRem$day <- NULL
+datasetRem$year <- NULL # All of them are already 2015 
+datasetRem$latitude <- NULL
+datasetRem$longitude <- NULL
+datasetRem$state_fp <- NULL
+datasetRem$county_fp <- NULL
+datasetRem$tract_ce <- NULL
+datasetRem$geo_id <- NULL
+datasetRem$county_id <- NULL
+datasetRem$namelsad <- NULL
+datasetRem$lawenforcementagency <- NULL
+
+# See Cleared Attributes, Updated Dataset;
+dim(datasetRem)
+class(datasetRem$age)
+```
+
+```{r}
+# !!!! AGE -> FACTOR!
+# AGE attribute is factor we need to convert to numeric
+datasetRem$age <- as.numeric(as.character(datasetRem$age))
+
+# FILLING MISSINGS with COLUMN MEAN
+# We can Automatically Fill over Missing Values over all Attributes with Columwise MEAN
+for(i in 1:ncol(datasetRem)){
+  datasetRem[is.na(datasetRem[,i]), i] <- mean(datasetRem[,i], na.rm = TRUE)
+}
+
+# ROUNDING FILLED VALUES
+# [1] "h_income"   "comp_income"  "county_bucket"   "nat_bucket"   "urate"   "college" -> FILLED ATTRIBUTES
+# Since we are not interested in having decimal places for Filled Attributes 
+# We will round it up using the below code.
+# The argument 0 in the round function means no decimal places.
+
+# For "age"
+datasetRem$age = as.numeric(format(round(datasetRem$age, 0)))
+# For "county_bucket"
+datasetRem$county_bucket = as.numeric(format(round(datasetRem$county_bucket, 0)))
+# For "nat_bucket"
+datasetRem$nat_bucket = as.numeric(format(round(datasetRem$nat_bucket, 0)))
+
+# Let's check missings again with new Data
+colnames(datasetRem)[colSums(is.na(datasetRem)) > 0]
+
+```
+```{r}
+# We have also many Unknown tuples in  Age, Race, Cause and Armed
+# ****** 
+# Raceethnicity, Cause and Armed Attributes also have Unknown values, But these are categorical not numeric so we need to fix this issue;
+# Number of Unknown rows are 25 which is not so much so we can ignore them
+Race = datasetRem[!grepl("Unknown", datasetRem$raceethnicity),]
+Cause = Race[!grepl("Unknown", Race$cause),]
+DataUnknown = Cause[!grepl("Unknown", Cause$armed),]
+
+# No missings, and unknowns anymore here!
+dataFD = DataUnknown
+dataFD
+```
+
+```{r}
+# ================= Some Rows(2 actually) Contains "-" and "0"  ==============
+# We rearrenge row-id's
+row.names(dataFD) <- NULL
+# Remove specific rows in r
+# remove rows by row number
+dataFD <- dataFD[-c(178),] 
+# We rearrenge row-id's again because we changed id's order by deleting a row
+row.names(dataFD) <- NULL
+dataFD <- dataFD[-c(363),] 
+# These two rows contained "-" we removed them
+row.names(dataFD) <- NULL
+
+# ***
+datafinal = dataFD
+datafinal
+```
+```{r}
+# ================= EMPTY / BLANK Rows ==============
+# Only CITY attribute has blank rows
+# We can convert tham to NA
+datafinal[datafinal==""]<-NA
+# Then we remove that rows
+dataLatest = na.omit(datafinal)
+row.names(dataLatest) <- NULL
+
+## =================  CHARACTERS Filtering, there is one row city named "Carlton City" we need to fix this;
+# This must be probably -> "Carlton City"
+dataLatest$city <- as.character(dataLatest$city)
+dataLatest[345,4] <- 'Carlton City'
+dataLatest$city <- factor(dataLatest$city)
+# value = "Carlton City"
+
+# We export clear Dataset as CSV
+write.csv(dataLatest, file = "datasetBACKUP.csv")
+
+dataFD = dataLatest
+dataFD
+```
+
+```{r}
+# ================ CONVERTING CATEGORICAL ATTRIBUTES TO NUMERIC ================
+
+# We can see how many different types the attributes have;
+for (i in colnames(dataFD)){
+    cats <- unique(dataFD[[i]])
+    # print(unique(dataFD[[i]])) # show also all types
+    print(i)
+    print(length(cats))
+}
+
+# We have only 5 Categorical attributes right now, we need to convert them;
+# Convert Gender 1 -> Female, 2 -> Male
+dataFD$gender <- as.numeric(factor(dataFD$gender))
+unique(dataFD$gender)
+
+# Convert raceethnicity [1]Black [2]White [3]Hispanic/Latino [4]Unknown [5]Asian/Pacific Islander [6]Native American 
+dataFD$raceethnicity <- as.numeric(factor(dataFD$raceethnicity))
+unique(dataFD$raceethnicity)
+
+# Convert city
+# 306 Levels:  ... 
+dataFD$city <- as.numeric(factor(dataFD$city))
+unique(dataFD$city)
+
+# Convert state
+# 47 Levels: AK[1] AL AR AZ CA CO CT DC DE FL GA ... WY[47]
+dataFD$state <- as.numeric(factor(dataFD$state))
+unique(dataFD$state)
+
+# Convert cause -> [1]Death in custody [2]Gunshot [3]Struck by vehicle [4]Taser [5]Unknown
+dataFD$cause <- as.numeric(factor(dataFD$cause))
+unique(dataFD$cause)
+
+# Convert armed -> [1]Disputed [2]Firearm [3]Knife [4]No [5]Non-lethal [6]firearm [7]Other [8]Unknown [9]Vehicle
+dataFD$armed <- as.numeric(factor(dataFD$armed))
+unique(dataFD$armed)
+dataFD
+```
+
+```{r}
+dataFS = dataFD
+# There are still 4 factor attribute but contains numeric data, let's fix them (pov, share_white, share_black, share_hispanic, p_income);
+str(dataFS)
+sapply(dataFS, class)
+
+# Care pov attribute, some problems while converting here, CONVERT pov to NUMERIC here;
+dataFS <- transform(dataFS, class=as.numeric(as.character(dataFS$pov)))
+# Then remove OLD POV attribute
+dataFS$pov <- NULL
+# Rename new Pov again;
+colnames(dataFS)[20] <- "pov"
+
+# Now we can Convert All Directly
+indx <- sapply(dataFS, is.factor)
+dataFS[indx] <- sapply(dataFS[indx], function(x) as.numeric(as.character(x)))
+convert_chr_to_num <- function(df) {
+  # Find character columns
+  indx <- sapply(df, is.character)
+  # Convert character columns to numeric
+  df[indx] <- lapply(df[indx], function(x) as.numeric(as.character(x)))
+  # Return the modified data frame
+  return(df)
+}
+dataFS <- convert_chr_to_num(dataFS)
+# Now every attribute is NUMERIC, we have all NUMERIC attributes!
+
+# Check OUTLIERS
+dataFS
+datasuperfinal=dataFS
+boxplot(datasuperfinal)
+Data_Cor = cor(datasuperfinal)
+hist(Data_Cor)
+
+```
+```{r}
+corrplot(Data_Cor)
+```
+
+
+```{r}
+palette = colorRampPalette(c("green", "white", "red")) (20)
+heatmap(x = Data_Cor, col = palette, symm = TRUE)
+
+# Simple Correlatoin Analysis
+cor(datasuperfinal)
+
+# *** Nice and simple visualisation, Half Version:
+library(corrplot)
+x <- cor(datasuperfinal)
+corrplot(x, type="upper", order="hclust")
+
+
+```
+```{r}
+# _-_-_-_-_-_- WE DECIDE REMOVING CORRELATED ATTRIBUTES (nat_bucket, p_income, h_income, country_bucket)
+datasuperfinal$p_income <- NULL
+datasuperfinal$h_income <- NULL
+datasuperfinal$nat_bucket <- NULL
+datasuperfinal$county_bucket <- NULL
+dim(datasuperfinal)
+
+```
+```{r}
+set.seed(2783)
+# load the library
+library(lattice)
+library(mlbench)
+library(caret)
+# calculate correlation matrix
+correlationMatrix <- cor(datasuperfinal)
+# summarize the correlation matrix
+print(correlationMatrix)
+# find attributes that are highly corrected (ideally > 0.75)
+highlyCorrelated <- findCorrelation(correlationMatrix, cutoff=0.5)
+# print indexes of highly correlated attributes
+print(highlyCorrelated)
+
+
+```
+
+```{r}
+
+x <- cor(datasuperfinal)
+corrplot(x, type="upper", order="hclust")
+```
+```{r}
+library(randomForest)
+set.seed(2312)
+dataRF <- randomForest(datasuperfinal$cause ~ ., data=datasuperfinal, ntree=1000,
+                          keep.forest=FALSE, importance=TRUE)
+importance(dataRF)
+importance(dataRF, type=1)
+```
+```{r}
+# Import the random forest library and fit a model
+library(randomForest)
+fit_rf = randomForest(datasuperfinal$cause~., data=datasuperfinal)
+# Create an importance based on mean decreasing gini
+importance(fit_rf)
+varImpPlot(fit_rf)
+```
+
+
+```{r}
+# This function shows the cross-validated prediction performance of models with sequentially reduced
+# number of predictors (ranked by variable importance) via a nested cross-validation procedure.
+result <- rfcv(datasuperfinal, datasuperfinal$cause, cv.fold=3)
+with(result, plot(n.var, error.cv, log="x", type="o", lwd=2))
+
+# We can use now feature selection algorithms to find which one is more valuable for us?
+randFor = randomForest::randomForest(datasuperfinal$cause~. , data = datasuperfinal)
+randFor
+plot(randFor)
+
+```
+```{r}
+
+# ====================== RECURSIVE FOREST ELIMINATION TEST (RFE)
+# Recursive feature elimination (RFE) is a feature selection method that fits a model and 
+# removes the weakest feature (or features) until the specified number of features is reached. 
+# Features are ranked by the model’s coef_ or feature_importances_ attributes, and by recursively 
+# eliminating a small number of features per loop, RFE attempts to eliminate dependencies and collinearity that may exist in the model.
+# ensure the results are repeatable
+set.seed(2312)
+# define the control using a random forest selection function
+control <- rfeControl(functions=rfFuncs, method="cv", number=16)
+# run the RFE algorithm
+results <- rfe(datasuprfinalbackup[,1:16], datasuprfinalbackup[,16], sizes=c(1:16), rfeControl=control)
+# summarize the results
+print(results)
+# list the chosen features
+predictors(results)
+# plot the results
+plot(results, type=c("g", "o"))
+```
+
+
+```{r}
+# PCA can be applied only to numeric data!
+Data_pca <- prcomp(datasuprfinalbackup, center = TRUE, scale. = TRUE)
+summary(Data_pca)
+str(Data_pca)
+# Plotting PCA
+# library(ggfortify)
+plot(Data_pca)
+```
+
+```{r}
+# -----------RANDOM FOREST ALGORITHM 
+randFor = randomForest::randomForest(datasuprfinalbackup$cause~. , data = datasuprfinalbackup)
+randFor
+plot(randFor)
+# run for each Attribute
+for (i in colnames(datasuprfinalbackup)){
+  randFor = randomForest::randomForest(datasuprfinalbackup[[i]]~. , data = datasuprfinalbackup)
+  randFor
+  plot(randFor)
+  title(main = paste('Column:', i), line = -1)
+}
+
+```
+
+```{r}
+par(mar = c(2, 3, 3, 2) + 0.3)
+
+
+reduce = datasuprfinalbackup
+#install.packages("reduce")
+data_pca <- prcomp(reduce, scale.=T)
+class(data_pca)
+plot(data_pca)
+
+winePCA <- prcomp(scale(reduce[,-1]))
+class(winePCA)
+plot(winePCA)
+summary(winePCA)
+
+reduce_pca <- prcomp(reduce, center = TRUE, scale = TRUE) 
+summary(reduce_pca)
+biplot(reduce_pca)
+
+str(reduce_pca)
+
+```
+```{r}
+#Elbow Method
+set.seed(6121)
+v = vector()
+for (i in 1:16) v[i] = sum(kmeans(datasuprfinalbackup, i)$withinss)
+plot(1:16,
+     v,
+     type = 'b',
+     main = paste('The Elbow Method'),
+     xlab = 'Number of clusters',
+     ylab = 'WCSS')
+# Above is for plotting Elbow Method, shows us the number of clusters
+# Elbow method is used to find the optimum number of clusters, We can say that 6-8 is optimum number of cluster from plot. we are only bothered by 2 because we only wish to understand armed and unarmed for now
+```
+
+```{r}
+# Applying K-Means to Our the dataset, we choose clusters as 2 by using elbow method above;
+set.seed(232)
+kmeans = kmeans(x = datasuprfinalbackup, centers = 2)
+y_kmeans = kmeans$cluster
+# For Plotting the clusters;
+library(cluster)
+clusplot(datasuprfinalbackup,
+         y_kmeans,
+         lines = 0,
+         shade = TRUE,
+         color = TRUE,
+         labels = 2,
+         plotchar = FALSE,
+         span = TRUE,
+         main = paste('Police Killings'),
+         xlab = 'x',
+         ylab = 'y')
+
+```
+```{r}
+set.seed(2323)
+kmeans = kmeans(x = datasuprfinalbackup, centers = 5)
+y_kmeans = kmeans$cluster
+# For Plotting the clusters;
+library(cluster)
+clusplot(datasuprfinalbackup,
+         y_kmeans,
+         lines = 0,
+         shade = TRUE,
+         color = TRUE,
+         labels = 2,
+         plotchar = FALSE,
+         span = TRUE,
+         main = paste('Police Killings'),
+         xlab = 'x',
+         ylab = 'y')
+
+```
+```{r}
+# SPLITTING DATA
+## 75% of the sample siz
+dataClus=datasuprfinalbackup
+smp_size <- floor(0.75 * nrow(dataClus)) # Get Sample Size, 75% Percentage of Number Of Rows We Have
+## set the seed
+set.seed(123)
+train_ind <- sample(seq_len(nrow(dataClus)), size = smp_size)
+
+train <- dataClus[train_ind, ] # 75%
+test <- dataClus[-train_ind, ] # 25%
+# Dimensions
+dim(train)
+dim(test)
+# The train dataset has 288 rows while the test dataset has 96 rows.
+```
+```{r}
+
+library(rpart)
+library(rpart.plot)
+# We use the class method because we predict a class. (Data -> TRAIN and Class Attr -> Cluster)
+fit <- rpart(train$cause~ + train$pov + train$age + train$gender + train$raceethnicity  + train$armed + train$state
+             + train$share_black + train$share_hispanic + train$college , data=dataClus, method = 'class')
+#rpart.plot(fit, extra = 106)
+# We Make a prediction
+predict_unseen <-predict(fit, test, type = 'class')
+
+
+# CART model
+dt = rpart(train$cause~ + train$pov + train$age + train$gender + train$raceethnicity  + train$city + train$state
++ train$share_black + train$share_hispanic + train$college +train$armed, data=dataClus)
+# Plot the tree using prp command defined in rpart.plot package
+prp(dt)
+
+```
+
+```{r}
+
+fit.base.tree <- rpart(cause ~ armed + pov + age + gender + raceethnicity + city + state + share_black + share_hispanic + college, data = train, method = "class", parms = list(split = "gini"), control = list(cp = 0))
+predictions_dt <- predict(fit.base.tree, newdata = test, type = "class")
+
+set.seed(123) # for reproducibility
+k <- 10 # number of folds
+folds <- createFolds(train$cause, k = k, list = TRUE, returnTrain = FALSE)
+accuracy_list <- list()
+
+# Loop through the folds
+for (i in 1:k) {
+  # Split the data into training and testing sets
+  train_cv <- train[-folds[[i]], ]
+  test_cv <- train[folds[[i]], ]
+
+  # Build the decision tree model
+  fit.cv.tree <- rpart(cause ~ armed + pov + age + gender + raceethnicity + city + state + share_black + share_hispanic + college, data = train_cv, method = "class", parms = list(split = "gini"), control = list(cp = 0))
+
+  # Make predictions on the testing set
+  predictions_cv <- predict(fit.cv.tree, newdata = test_cv, type = "class")
+
+  # Evaluate the accuracy of the model
+  accuracy_cv <- mean(predictions_cv == test_cv$cause)
+
+  # Store the result
+  accuracy_list[[i]] <- accuracy_cv
+}
+
+accuracy_mean <- mean(unlist(accuracy_list))
+accuracy_sd <- sd(unlist(accuracy_list))
+accuracy <- mean(predictions_dt == test$cause)
+
+accuracy_mean
+accuracy_sd
+accuracy 
+
+```
+
+
+```{r}
+train_ind <- sample(seq_len(nrow(dataClus)), size = smp_size)
+samplesize = 0.60 * nrow(dataClus)
+set.seed(2312)
+index = sample( seq_len ( nrow ( dataClus ) ), size = samplesize )
+
+# Create training and test set
+datatrain = dataClus[ index, ]
+datatest = dataClus[ -index, ]
+
+## Scale data for neural network
+max = apply(dataClus , 2 , max)
+min = apply(dataClus, 2 , min)
+scaled = as.data.frame(scale(dataClus, center = min, scale = max - min))
+
+## Fit neural network 
+# install library
+
+# load library
+library(neuralnet)
+# creating training and test set
+trainNN = scaled[index , ]
+testNN = scaled[-index , ]
+# fit neural network
+set.seed(2)
+NN = neuralnet(trainNN$cause ~., trainNN, hidden = 3 , linear.output = T )
+# plot neural network
+plot(NN)
+
+## Prediction using neural network
+class(NN)
+predict_testNN = predict_testNN = neuralnet::compute(NN, testNN[,c(1:16)])
+predict_testNN = (predict_testNN$net.result * (max(dataClus$cause) - min(dataClus$cause))) + min(dataClus$cause)
+plot(datatest$cause, predict_testNN, col='blue', pch=16, ylab = "predicted rating NN", xlab = "real rating")
+abline(0,1)
+# Calculate Root Mean Square Error (RMSE)
+# Predicted rating vs. real rating using neural network
+RMSE.NN = (sum((datatest$cause - predict_testNN)^2) / nrow(datatest)) ^ 0.5
+RMSE.NN
+MAE <- mean(abs(datatest$cause - predict_testNN))
+MAE
+```
+```{r}
+fit.rf <-randomForest(cause ~ pov + age + gender + raceethnicity + city + state + share_black + share_hispanic + college, data = train)
+fit.rf
+train_x <- train %>% dplyr::select(-"cause")
+train_y<-train[,'cause']
+tuneRF(train_x, train_y, ntreeTry = 500)
+```
+```{r}
+# tuning
+fit.rf<- randomForest(cause ~ pov + age + gender + raceethnicity + city + state + share_black + share_hispanic + college, data = train, mtry=3, ntree = 500)
+fit.rf
+
+predictions.rf<- predict(fit.rf, newdata=test)
+RMSE(predictions.rf, test$cause)
+R2(predictions.rf, test$cause)
+mean(predictions.rf == test$cause)
+```
